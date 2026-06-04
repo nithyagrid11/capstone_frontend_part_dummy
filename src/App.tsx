@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import axios, { type AxiosRequestConfig } from "axios";
 import {
   Activity,
   AlertTriangle,
@@ -20,6 +21,9 @@ import {
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import Navbar from "./components/Navbar";
+import { Badge } from "./components/ui/badge";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
 import { routes, type RouteId } from "./routes";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -343,27 +347,37 @@ const pipeline = [
   ["Harness", "Actions surfaced to the workflow agent"],
 ];
 
-async function fetchJson<T>(path: string, fallback: T, init?: RequestInit): Promise<ApiState<T>> {
+const api = axios.create({
+  baseURL: API_BASE,
+  headers: {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
+  },
+});
+
+async function fetchJson<T>(path: string, fallback: T, init?: AxiosRequestConfig): Promise<ApiState<T>> {
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true",
-      },
+    const response = await api.request<T>({
+      url: path,
+      method: "GET",
       ...init,
     });
 
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`);
-    }
-
-    return { data: (await response.json()) as T, loading: false, source: "api" };
+    return { data: response.data, loading: false, source: "api" };
   } catch (error) {
+    const message = axios.isAxiosError(error)
+      ? error.response
+        ? `${error.response.status} ${error.response.statusText}`
+        : error.message
+      : error instanceof Error
+        ? error.message
+        : "API unavailable";
+
     return {
       data: fallback,
       loading: false,
       source: "demo",
-      error: error instanceof Error ? error.message : "API unavailable",
+      error: message,
     };
   }
 }
@@ -467,16 +481,15 @@ function JourneyPage() {
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <input
+            <Input
               value={scenarioId}
               onChange={(event) => setScenarioId(event.target.value)}
-              className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-500"
               aria-label="Scenario ID"
             />
-            <button className="btn-primary" onClick={load}>
+            <Button onClick={load}>
               <RefreshCw size={16} />
               Refresh
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -561,7 +574,6 @@ function ExperiencePage() {
   });
 
   const extract = async () => {
-    if (READ_ONLY_API) return;
     setStage((state) => ({ ...state, loading: true }));
     await fetchJson(`/experiences/extract/${scenarioId}`, {}, { method: "POST" });
     const [experienceResult, patternResult] = await Promise.all([
@@ -589,11 +601,11 @@ function ExperiencePage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <SectionTitle icon={GitBranch} title="Deal Experience Progression" />
           <div className="flex gap-2">
-            <input className="input" value={scenarioId} onChange={(event) => setScenarioId(event.target.value)} />
-            <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" onClick={extract} disabled={READ_ONLY_API} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Extract experiences"}>
+            <Input value={scenarioId} onChange={(event) => setScenarioId(event.target.value)} />
+            <Button onClick={extract} disabled={stage.loading} title="Extract experiences">
               <Play size={16} />
-              {READ_ONLY_API ? "Read-only" : "Extract"}
-            </button>
+              {stage.loading ? "Extracting" : "Extract"}
+            </Button>
           </div>
         </div>
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
@@ -699,13 +711,13 @@ function PrecedentSearchPage() {
 
   const search = async () => {
     setResults((state) => ({ ...state, loading: true }));
-    const body = JSON.stringify({
+    const data = {
       industry: industry || undefined,
       outcome: outcome || undefined,
       has_architect: true,
       top_k: 5,
-    });
-    setResults(await fetchJson("/intelligence/similar", results.data, { method: "POST", body }));
+    };
+    setResults(await fetchJson("/intelligence/similar", results.data, { method: "POST", data }));
   };
 
   return (
@@ -723,10 +735,10 @@ function PrecedentSearchPage() {
             <input type="checkbox" />
             Solo AE risk
           </label>
-          <button className="btn-primary w-full justify-center" onClick={search}>
+          <Button className="w-full" onClick={search}>
             <Search size={16} />
             Find Precedents
-          </button>
+          </Button>
         </div>
       </section>
       <section className="panel">
@@ -795,8 +807,42 @@ function GraphPage() {
     : Array.isArray(stats.data.nodes)
       ? stats.data.nodes
       : stats.data.nodes
-        ? Object.entries(stats.data.nodes).map(([type, count]) => ({ type, count }))
+        ? Object.entries(stats.data.nodes)
+          .filter(([type]) => type !== "total")
+          .map(([type, count]) => ({ type, count }))
         : demoGraphStats;
+  const edgeRows: GraphStat[] = !Array.isArray(stats.data) && stats.data.edges
+    ? Array.isArray(stats.data.edges)
+      ? stats.data.edges.filter((edge) => edge.type !== "total")
+      : Object.entries(stats.data.edges)
+        .filter(([type]) => type !== "total")
+        .map(([type, count]) => ({ type, count }))
+    : [];
+  const countByType = new Map(rows.map((row) => [row.type, row.count]));
+  const totalNodes = !Array.isArray(stats.data) && stats.data.nodes && !Array.isArray(stats.data.nodes)
+    ? stats.data.nodes.total
+    : rows.reduce((sum, row) => sum + row.count, 0);
+  const totalEdges = !Array.isArray(stats.data) && stats.data.edges && !Array.isArray(stats.data.edges)
+    ? stats.data.edges.total
+    : edgeRows.reduce((sum, row) => sum + row.count, 0);
+  const graphNodes = [
+    { type: "Opportunity", x: 80, y: 150, tone: "fill-slate-950", text: "fill-white" },
+    { type: "Pattern", x: 230, y: 85, tone: "fill-blue-600", text: "fill-white" },
+    { type: "Skill", x: 380, y: 150, tone: "fill-emerald-600", text: "fill-white" },
+    { type: "Tool", x: 530, y: 85, tone: "fill-amber-500", text: "fill-slate-950" },
+    { type: "Person", x: 380, y: 250, tone: "fill-violet-600", text: "fill-white" },
+  ];
+  const graphEdges = [
+    { from: "Opportunity", to: "Pattern", label: "matches" },
+    { from: "Pattern", to: "Skill", label: "suggests" },
+    { from: "Skill", to: "Tool", label: "uses" },
+    { from: "Skill", to: "Person", label: "expert in" },
+    { from: "Pattern", to: "Person", label: "best handled by" },
+  ].map((edge) => ({
+    ...edge,
+    fromNode: graphNodes.find((node) => node.type === edge.from)!,
+    toNode: graphNodes.find((node) => node.type === edge.to)!,
+  }));
 
   return (
     <div className="space-y-5">
@@ -804,27 +850,69 @@ function GraphPage() {
       <section className="panel">
         <SectionTitle icon={Network} title="Neo4j Deal Graph" />
         <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_360px]">
-          <div className="relative h-96 rounded-lg border border-slate-200 bg-white">
-            {["Opportunity", "Pattern", "Skill", "Tool", "Person"].map((node, index) => (
-              <div
-                key={node}
-                className="absolute flex h-24 w-24 items-center justify-center rounded-full border border-slate-300 bg-slate-50 text-center text-xs font-semibold shadow-sm"
-                style={{
-                  left: `${12 + (index % 3) * 32}%`,
-                  top: `${16 + Math.floor(index / 3) * 45}%`,
-                }}
-              >
-                {node}
-              </div>
-            ))}
-            <div className="absolute left-[28%] top-[28%] h-px w-[34%] rotate-12 bg-slate-300" />
-            <div className="absolute left-[49%] top-[31%] h-px w-[25%] rotate-[32deg] bg-slate-300" />
-            <div className="absolute left-[23%] top-[65%] h-px w-[42%] -rotate-12 bg-slate-300" />
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+            <svg viewBox="0 0 620 330" role="img" aria-label="Deal graph showing opportunities connected to patterns, skills, tools, and people" className="h-96 w-full">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" className="fill-slate-400" />
+                </marker>
+              </defs>
+              <rect width="620" height="330" rx="12" className="fill-white" />
+              {graphEdges.map((edge) => {
+                const midX = (edge.fromNode.x + edge.toNode.x) / 2;
+                const midY = (edge.fromNode.y + edge.toNode.y) / 2;
+
+                return (
+                  <g key={`${edge.from}-${edge.to}`}>
+                    <line
+                      x1={edge.fromNode.x}
+                      y1={edge.fromNode.y}
+                      x2={edge.toNode.x}
+                      y2={edge.toNode.y}
+                      strokeWidth="2"
+                      markerEnd="url(#arrow)"
+                      className="stroke-slate-300"
+                    />
+                    <text x={midX} y={midY - 8} textAnchor="middle" className="fill-slate-500 text-[11px] font-semibold uppercase">
+                      {edge.label}
+                    </text>
+                  </g>
+                );
+              })}
+              {graphNodes.map((node) => (
+                <g key={node.type}>
+                  <circle cx={node.x} cy={node.y} r="48" className={`${node.tone} drop-shadow-sm`} />
+                  <text x={node.x} y={node.y - 4} textAnchor="middle" className={`${node.text} text-[13px] font-bold`}>
+                    {node.type}
+                  </text>
+                  <text x={node.x} y={node.y + 16} textAnchor="middle" className={`${node.text} text-[18px] font-bold`}>
+                    {countByType.get(node.type) ?? 0}
+                  </text>
+                </g>
+              ))}
+            </svg>
           </div>
           <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Metric label="Total Nodes" value={String(totalNodes)} />
+              <Metric label="Total Edges" value={String(totalEdges)} />
+            </div>
             {rows.map((row) => (
               <Metric key={row.type} label={row.type} value={String(row.count)} />
             ))}
+            {edgeRows.length ? (
+              <details className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
+                <summary className="cursor-pointer font-semibold text-slate-900">Relationship counts</summary>
+                <div className="mt-3 space-y-2">
+                  {edgeRows.map((row) => (
+                    <div key={row.type} className="flex items-center justify-between gap-3 text-slate-600">
+                      <span className="font-mono text-xs">{row.type}</span>
+                      <span className="font-semibold text-slate-950">{row.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </div>
         </div>
       </section>
@@ -854,11 +942,11 @@ function TimelinePage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <SectionTitle icon={Clock3} title="Temporal Opportunity Flow" />
           <div className="flex gap-2">
-            <input className="input" value={opportunityId} onChange={(event) => setOpportunityId(event.target.value)} aria-label="Opportunity ID" />
-            <button className="btn-primary" onClick={loadFlow}>
+            <Input value={opportunityId} onChange={(event) => setOpportunityId(event.target.value)} aria-label="Opportunity ID" />
+            <Button onClick={loadFlow}>
               <RefreshCw size={16} />
               Load flow
-            </button>
+            </Button>
           </div>
         </div>
         <p className="mt-3 text-sm text-slate-500">
@@ -890,18 +978,18 @@ function ActiveOpportunitiesPage() {
     setOpportunities((state) => ({ ...state, loading: true }));
     setOpportunities(await fetchJson("/sf/fetch/soql", demoSalesforceResponse, {
       method: "POST",
-      body: JSON.stringify({
+      data: {
         query: "SELECT Id, Name, StageName, Amount, CloseDate FROM Opportunity WHERE IsClosed = false ORDER BY CloseDate ASC LIMIT 50",
-      }),
+      },
     }));
   };
 
   useEffect(() => {
     void fetchJson("/sf/fetch/soql", demoSalesforceResponse, {
       method: "POST",
-      body: JSON.stringify({
+      data: {
         query: "SELECT Id, Name, StageName, Amount, CloseDate FROM Opportunity WHERE IsClosed = false ORDER BY CloseDate ASC LIMIT 50",
-      }),
+      },
     }).then(setOpportunities);
   }, []);
 
@@ -911,10 +999,10 @@ function ActiveOpportunitiesPage() {
       <section className="panel">
         <div className="flex items-center justify-between gap-3">
           <SectionTitle icon={Activity} title="Active Salesforce Opportunities" />
-          <button className="btn-secondary" onClick={loadOpportunities}>
+          <Button variant="secondary" onClick={loadOpportunities}>
             <RefreshCw size={15} />
             Refresh
-          </button>
+          </Button>
         </div>
         <p className="mt-3 text-sm text-slate-500">
           Uses <code>POST /sf/fetch/soql</code> through the FastAPI Salesforce connector.
@@ -961,10 +1049,10 @@ function SkillApprovalPage() {
 
   const decide = async (skill: CandidateSkill, decision: "approve" | "reject") => {
     if (READ_ONLY_API) return;
-    const body = decision === "approve"
-      ? JSON.stringify({ approved_by: "react_demo" })
-      : JSON.stringify({ reason: "Rejected from React demo review", rejected_by: "react_demo" });
-    const result = await fetchJson(`/skills/${skill.candidate_skill_id}/${decision}`, { status: "demo" }, { method: "POST", body });
+    const data = decision === "approve"
+      ? { approved_by: "react_demo" }
+      : { reason: "Rejected from React demo review", rejected_by: "react_demo" };
+    const result = await fetchJson(`/skills/${skill.candidate_skill_id}/${decision}`, { status: "demo" }, { method: "POST", data });
     setMessage(result.source === "api" ? `${skill.name} was ${decision}d.` : `Could not ${decision} through API; showing demo data.`);
     await loadSkills();
   };
@@ -980,10 +1068,10 @@ function SkillApprovalPage() {
       <section className="panel">
         <div className="flex items-center justify-between gap-3">
           <SectionTitle icon={ShieldCheck} title="Candidate Skill Registry" />
-          <button className="btn-secondary" onClick={loadSkills}>
+          <Button variant="secondary" onClick={loadSkills}>
             <RefreshCw size={15} />
             Refresh
-          </button>
+          </Button>
         </div>
         <p className="mt-3 text-sm text-slate-500">
           Lists <code>GET /skills/search</code> results and sends decisions to <code>POST /skills/{`{candidate_id}`}/approve</code> or <code>/reject</code>.
@@ -1002,14 +1090,14 @@ function SkillApprovalPage() {
                 <Progress value={Math.round(skill.confidence * 100)} />
               </div>
               <div className="mt-4 flex gap-2">
-                <button className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => decide(skill, "approve")} disabled={READ_ONLY_API || skill.status !== "candidate"} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Approve candidate"}>
+                <Button variant="secondary" onClick={() => decide(skill, "approve")} disabled={READ_ONLY_API || skill.status !== "candidate"} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Approve candidate"}>
                   <CheckCircle2 size={15} />
                   Approve
-                </button>
-                <button className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => decide(skill, "reject")} disabled={READ_ONLY_API || skill.status !== "candidate"} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Reject candidate"}>
+                </Button>
+                <Button variant="secondary" onClick={() => decide(skill, "reject")} disabled={READ_ONLY_API || skill.status !== "candidate"} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Reject candidate"}>
                   <XCircle size={15} />
                   Reject
-                </button>
+                </Button>
               </div>
             </div>
           ))}
@@ -1140,11 +1228,7 @@ function AnalyticsCard({ title, rows, suffix = "", danger = false }: { title: st
 }
 
 function StatusBadge({ good, label }: { good: boolean; label: string }) {
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${good ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
-      {label}
-    </span>
-  );
+  return <Badge variant={good ? "success" : "danger"}>{label}</Badge>;
 }
 
 function Progress({ value }: { value: number }) {
