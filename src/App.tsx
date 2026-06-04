@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import axios, { type AxiosRequestConfig } from "axios";
 import {
   Activity,
   AlertTriangle,
@@ -20,6 +21,9 @@ import {
 } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import Navbar from "./components/Navbar";
+import { Badge } from "./components/ui/badge";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
 import { routes, type RouteId } from "./routes";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -343,27 +347,37 @@ const pipeline = [
   ["Harness", "Actions surfaced to the workflow agent"],
 ];
 
-async function fetchJson<T>(path: string, fallback: T, init?: RequestInit): Promise<ApiState<T>> {
+const api = axios.create({
+  baseURL: API_BASE,
+  headers: {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
+  },
+});
+
+async function fetchJson<T>(path: string, fallback: T, init?: AxiosRequestConfig): Promise<ApiState<T>> {
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true",
-      },
+    const response = await api.request<T>({
+      url: path,
+      method: "GET",
       ...init,
     });
 
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`);
-    }
-
-    return { data: (await response.json()) as T, loading: false, source: "api" };
+    return { data: response.data, loading: false, source: "api" };
   } catch (error) {
+    const message = axios.isAxiosError(error)
+      ? error.response
+        ? `${error.response.status} ${error.response.statusText}`
+        : error.message
+      : error instanceof Error
+        ? error.message
+        : "API unavailable";
+
     return {
       data: fallback,
       loading: false,
       source: "demo",
-      error: error instanceof Error ? error.message : "API unavailable",
+      error: message,
     };
   }
 }
@@ -467,16 +481,15 @@ function JourneyPage() {
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <input
+            <Input
               value={scenarioId}
               onChange={(event) => setScenarioId(event.target.value)}
-              className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-slate-500"
               aria-label="Scenario ID"
             />
-            <button className="btn-primary" onClick={load}>
+            <Button onClick={load}>
               <RefreshCw size={16} />
               Refresh
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -561,7 +574,6 @@ function ExperiencePage() {
   });
 
   const extract = async () => {
-    if (READ_ONLY_API) return;
     setStage((state) => ({ ...state, loading: true }));
     await fetchJson(`/experiences/extract/${scenarioId}`, {}, { method: "POST" });
     const [experienceResult, patternResult] = await Promise.all([
@@ -589,11 +601,11 @@ function ExperiencePage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <SectionTitle icon={GitBranch} title="Deal Experience Progression" />
           <div className="flex gap-2">
-            <input className="input" value={scenarioId} onChange={(event) => setScenarioId(event.target.value)} />
-            <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" onClick={extract} disabled={READ_ONLY_API} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Extract experiences"}>
+            <Input value={scenarioId} onChange={(event) => setScenarioId(event.target.value)} />
+            <Button onClick={extract} disabled={stage.loading} title="Extract experiences">
               <Play size={16} />
-              {READ_ONLY_API ? "Read-only" : "Extract"}
-            </button>
+              {stage.loading ? "Extracting" : "Extract"}
+            </Button>
           </div>
         </div>
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
@@ -699,13 +711,13 @@ function PrecedentSearchPage() {
 
   const search = async () => {
     setResults((state) => ({ ...state, loading: true }));
-    const body = JSON.stringify({
+    const data = {
       industry: industry || undefined,
       outcome: outcome || undefined,
       has_architect: true,
       top_k: 5,
-    });
-    setResults(await fetchJson("/intelligence/similar", results.data, { method: "POST", body }));
+    };
+    setResults(await fetchJson("/intelligence/similar", results.data, { method: "POST", data }));
   };
 
   return (
@@ -723,10 +735,10 @@ function PrecedentSearchPage() {
             <input type="checkbox" />
             Solo AE risk
           </label>
-          <button className="btn-primary w-full justify-center" onClick={search}>
+          <Button className="w-full" onClick={search}>
             <Search size={16} />
             Find Precedents
-          </button>
+          </Button>
         </div>
       </section>
       <section className="panel">
@@ -854,11 +866,11 @@ function TimelinePage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <SectionTitle icon={Clock3} title="Temporal Opportunity Flow" />
           <div className="flex gap-2">
-            <input className="input" value={opportunityId} onChange={(event) => setOpportunityId(event.target.value)} aria-label="Opportunity ID" />
-            <button className="btn-primary" onClick={loadFlow}>
+            <Input value={opportunityId} onChange={(event) => setOpportunityId(event.target.value)} aria-label="Opportunity ID" />
+            <Button onClick={loadFlow}>
               <RefreshCw size={16} />
               Load flow
-            </button>
+            </Button>
           </div>
         </div>
         <p className="mt-3 text-sm text-slate-500">
@@ -890,18 +902,18 @@ function ActiveOpportunitiesPage() {
     setOpportunities((state) => ({ ...state, loading: true }));
     setOpportunities(await fetchJson("/sf/fetch/soql", demoSalesforceResponse, {
       method: "POST",
-      body: JSON.stringify({
+      data: {
         query: "SELECT Id, Name, StageName, Amount, CloseDate FROM Opportunity WHERE IsClosed = false ORDER BY CloseDate ASC LIMIT 50",
-      }),
+      },
     }));
   };
 
   useEffect(() => {
     void fetchJson("/sf/fetch/soql", demoSalesforceResponse, {
       method: "POST",
-      body: JSON.stringify({
+      data: {
         query: "SELECT Id, Name, StageName, Amount, CloseDate FROM Opportunity WHERE IsClosed = false ORDER BY CloseDate ASC LIMIT 50",
-      }),
+      },
     }).then(setOpportunities);
   }, []);
 
@@ -911,10 +923,10 @@ function ActiveOpportunitiesPage() {
       <section className="panel">
         <div className="flex items-center justify-between gap-3">
           <SectionTitle icon={Activity} title="Active Salesforce Opportunities" />
-          <button className="btn-secondary" onClick={loadOpportunities}>
+          <Button variant="secondary" onClick={loadOpportunities}>
             <RefreshCw size={15} />
             Refresh
-          </button>
+          </Button>
         </div>
         <p className="mt-3 text-sm text-slate-500">
           Uses <code>POST /sf/fetch/soql</code> through the FastAPI Salesforce connector.
@@ -961,10 +973,10 @@ function SkillApprovalPage() {
 
   const decide = async (skill: CandidateSkill, decision: "approve" | "reject") => {
     if (READ_ONLY_API) return;
-    const body = decision === "approve"
-      ? JSON.stringify({ approved_by: "react_demo" })
-      : JSON.stringify({ reason: "Rejected from React demo review", rejected_by: "react_demo" });
-    const result = await fetchJson(`/skills/${skill.candidate_skill_id}/${decision}`, { status: "demo" }, { method: "POST", body });
+    const data = decision === "approve"
+      ? { approved_by: "react_demo" }
+      : { reason: "Rejected from React demo review", rejected_by: "react_demo" };
+    const result = await fetchJson(`/skills/${skill.candidate_skill_id}/${decision}`, { status: "demo" }, { method: "POST", data });
     setMessage(result.source === "api" ? `${skill.name} was ${decision}d.` : `Could not ${decision} through API; showing demo data.`);
     await loadSkills();
   };
@@ -980,10 +992,10 @@ function SkillApprovalPage() {
       <section className="panel">
         <div className="flex items-center justify-between gap-3">
           <SectionTitle icon={ShieldCheck} title="Candidate Skill Registry" />
-          <button className="btn-secondary" onClick={loadSkills}>
+          <Button variant="secondary" onClick={loadSkills}>
             <RefreshCw size={15} />
             Refresh
-          </button>
+          </Button>
         </div>
         <p className="mt-3 text-sm text-slate-500">
           Lists <code>GET /skills/search</code> results and sends decisions to <code>POST /skills/{`{candidate_id}`}/approve</code> or <code>/reject</code>.
@@ -1002,14 +1014,14 @@ function SkillApprovalPage() {
                 <Progress value={Math.round(skill.confidence * 100)} />
               </div>
               <div className="mt-4 flex gap-2">
-                <button className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => decide(skill, "approve")} disabled={READ_ONLY_API || skill.status !== "candidate"} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Approve candidate"}>
+                <Button variant="secondary" onClick={() => decide(skill, "approve")} disabled={READ_ONLY_API || skill.status !== "candidate"} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Approve candidate"}>
                   <CheckCircle2 size={15} />
                   Approve
-                </button>
-                <button className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" onClick={() => decide(skill, "reject")} disabled={READ_ONLY_API || skill.status !== "candidate"} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Reject candidate"}>
+                </Button>
+                <Button variant="secondary" onClick={() => decide(skill, "reject")} disabled={READ_ONLY_API || skill.status !== "candidate"} title={READ_ONLY_API ? "Disabled because the ngrok backend is read-only" : "Reject candidate"}>
                   <XCircle size={15} />
                   Reject
-                </button>
+                </Button>
               </div>
             </div>
           ))}
@@ -1140,11 +1152,7 @@ function AnalyticsCard({ title, rows, suffix = "", danger = false }: { title: st
 }
 
 function StatusBadge({ good, label }: { good: boolean; label: string }) {
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${good ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
-      {label}
-    </span>
-  );
+  return <Badge variant={good ? "success" : "danger"}>{label}</Badge>;
 }
 
 function Progress({ value }: { value: number }) {
