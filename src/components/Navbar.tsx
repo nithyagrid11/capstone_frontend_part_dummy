@@ -1,50 +1,38 @@
-export default function Navbar() {
+import { Bell, Radio } from "lucide-react";
+import type { Route } from "../routes";
+
+type Props = {
+  route: Route;
+  apiBase: string;
+};
+
+export default function Navbar({ route, apiBase }: Props) {
   return (
-    <div className="bg-white border-b px-6 py-4 flex justify-between items-center">
-      {/* Left Side */}
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-800">
-          Enterprise Insights
-        </h1>
-
-        <p className="text-sm text-gray-500">
-          Dashboard
-        </p>
-      </div>
-
-      {/* Right Side */}
-      <div className="flex items-center gap-5">
-        {/* Search */}
-        <input
-          type="text"
-          placeholder="Search workflows..."
-          className="border border-gray-300 rounded-lg px-4 py-2 w-72 outline-none bg-gray-50"
-        />
-
-        {/* Notification */}
-        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center cursor-pointer">
-          🔔
+    <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            {route.eyebrow}
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold text-slate-950">{route.title}</h1>
         </div>
 
-        {/* Profile */}
-        <div className="flex items-center gap-3 bg-gray-200 px-4 py-2 rounded-xl cursor-pointer">
-          {/* Initials Avatar */}
-          <div className="w-10 h-10 rounded-full bg-gray-400 flex items-center justify-center text-white font-semibold">
-            AU
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600">
+            <Radio size={16} className="text-emerald-600" />
+            {apiBase}
           </div>
-
-          {/* User Info */}
-          <div>
-            <p className="text-sm font-semibold text-gray-800">
-              Admin User
-            </p>
-
-            <p className="text-xs text-gray-500">
-              Super Admin
-            </p>
+          <button className="icon-button" type="button" aria-label="Notifications">
+            <Bell size={18} />
+          </button>
+          <div className="flex h-10 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm text-white">
+            <span className="flex h-6 w-6 items-center justify-center rounded bg-emerald-400 text-xs font-bold text-slate-950">
+              SI
+            </span>
+            Demo
           </div>
         </div>
       </div>
-    </div>
+    </header>
   );
 }

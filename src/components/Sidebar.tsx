@@ -1,45 +1,53 @@
-import {
-  LayoutDashboard,
-  Briefcase,
-  Workflow,
-  Clock3,
-  Users,
-  Shield,
-  Activity,
-  Database,
-  Settings,
-} from "lucide-react";
+import { Activity } from "lucide-react";
+import { routes, type RouteId } from "../routes";
 
-const items = [
-  { icon: LayoutDashboard, label: "Dashboard" },
-  { icon: Briefcase, label: "Opportunity" },
-  { icon: Workflow, label: "Workflow Runs" },
-  { icon: Clock3, label: "Temporal" },
-  { icon: Users, label: "Employee" },
-  { icon: Shield, label: "Guardrails" },
-  { icon: Activity, label: "Activity Feed" },
-  { icon: Database, label: "Salesforce Objects" },
-  { icon: Settings, label: "Settings" },
-];
+type Props = {
+  activeRoute: RouteId;
+  onRouteChange: (route: RouteId) => void;
+};
 
-export default function Sidebar() {
+export default function Sidebar({ activeRoute, onRouteChange }: Props) {
   return (
-    <div className="w-72 bg-gray-700 text-white min-h-screen p-6">
-      <h1 className="text-3xl font-bold mb-12">
-        Admin UI
-      </h1>
-
-      <div className="space-y-2">
-        {items.map((item) => (
-          <div
-            key={item.label}
-            className="flex items-center gap-3 p-4 rounded-xl hover:bg-gray-600 cursor-pointer transition"
-          >
-            <item.icon size={20} />
-            <span>{item.label}</span>
+    <aside className="border-slate-800 bg-slate-950 text-white lg:fixed lg:inset-y-0 lg:left-0 lg:w-72 lg:border-r">
+      <div className="flex h-full flex-col p-4">
+        <div className="flex items-center gap-3 px-2 py-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-emerald-500 text-slate-950">
+            <Activity size={22} />
           </div>
-        ))}
+          <div>
+            <h1 className="text-lg font-semibold">Intelligence Engine</h1>
+            <p className="text-xs text-slate-400">Salesforce demo console</p>
+          </div>
+        </div>
+
+        <nav className="mt-5 grid gap-1">
+          {routes.map((item) => {
+            const Icon = item.icon;
+            const selected = activeRoute === item.id;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onRouteChange(item.id)}
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition ${
+                  selected
+                    ? "bg-white text-slate-950"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                }`}
+              >
+                <Icon size={18} />
+                <span>
+                  <span className="block text-sm font-semibold">{item.label}</span>
+                  <span className={`block text-xs ${selected ? "text-slate-500" : "text-slate-500"}`}>
+                    {item.eyebrow}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
       </div>
-    </div>
+    </aside>
   );
 }
