@@ -807,8 +807,42 @@ function GraphPage() {
     : Array.isArray(stats.data.nodes)
       ? stats.data.nodes
       : stats.data.nodes
-        ? Object.entries(stats.data.nodes).map(([type, count]) => ({ type, count }))
+        ? Object.entries(stats.data.nodes)
+          .filter(([type]) => type !== "total")
+          .map(([type, count]) => ({ type, count }))
         : demoGraphStats;
+  const edgeRows: GraphStat[] = !Array.isArray(stats.data) && stats.data.edges
+    ? Array.isArray(stats.data.edges)
+      ? stats.data.edges.filter((edge) => edge.type !== "total")
+      : Object.entries(stats.data.edges)
+        .filter(([type]) => type !== "total")
+        .map(([type, count]) => ({ type, count }))
+    : [];
+  const countByType = new Map(rows.map((row) => [row.type, row.count]));
+  const totalNodes = !Array.isArray(stats.data) && stats.data.nodes && !Array.isArray(stats.data.nodes)
+    ? stats.data.nodes.total
+    : rows.reduce((sum, row) => sum + row.count, 0);
+  const totalEdges = !Array.isArray(stats.data) && stats.data.edges && !Array.isArray(stats.data.edges)
+    ? stats.data.edges.total
+    : edgeRows.reduce((sum, row) => sum + row.count, 0);
+  const graphNodes = [
+    { type: "Opportunity", x: 80, y: 150, tone: "fill-slate-950", text: "fill-white" },
+    { type: "Pattern", x: 230, y: 85, tone: "fill-blue-600", text: "fill-white" },
+    { type: "Skill", x: 380, y: 150, tone: "fill-emerald-600", text: "fill-white" },
+    { type: "Tool", x: 530, y: 85, tone: "fill-amber-500", text: "fill-slate-950" },
+    { type: "Person", x: 380, y: 250, tone: "fill-violet-600", text: "fill-white" },
+  ];
+  const graphEdges = [
+    { from: "Opportunity", to: "Pattern", label: "matches" },
+    { from: "Pattern", to: "Skill", label: "suggests" },
+    { from: "Skill", to: "Tool", label: "uses" },
+    { from: "Skill", to: "Person", label: "expert in" },
+    { from: "Pattern", to: "Person", label: "best handled by" },
+  ].map((edge) => ({
+    ...edge,
+    fromNode: graphNodes.find((node) => node.type === edge.from)!,
+    toNode: graphNodes.find((node) => node.type === edge.to)!,
+  }));
 
   return (
     <div className="space-y-5">
@@ -816,27 +850,69 @@ function GraphPage() {
       <section className="panel">
         <SectionTitle icon={Network} title="Neo4j Deal Graph" />
         <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_360px]">
-          <div className="relative h-96 rounded-lg border border-slate-200 bg-white">
-            {["Opportunity", "Pattern", "Skill", "Tool", "Person"].map((node, index) => (
-              <div
-                key={node}
-                className="absolute flex h-24 w-24 items-center justify-center rounded-full border border-slate-300 bg-slate-50 text-center text-xs font-semibold shadow-sm"
-                style={{
-                  left: `${12 + (index % 3) * 32}%`,
-                  top: `${16 + Math.floor(index / 3) * 45}%`,
-                }}
-              >
-                {node}
-              </div>
-            ))}
-            <div className="absolute left-[28%] top-[28%] h-px w-[34%] rotate-12 bg-slate-300" />
-            <div className="absolute left-[49%] top-[31%] h-px w-[25%] rotate-[32deg] bg-slate-300" />
-            <div className="absolute left-[23%] top-[65%] h-px w-[42%] -rotate-12 bg-slate-300" />
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+            <svg viewBox="0 0 620 330" role="img" aria-label="Deal graph showing opportunities connected to patterns, skills, tools, and people" className="h-96 w-full">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" className="fill-slate-400" />
+                </marker>
+              </defs>
+              <rect width="620" height="330" rx="12" className="fill-white" />
+              {graphEdges.map((edge) => {
+                const midX = (edge.fromNode.x + edge.toNode.x) / 2;
+                const midY = (edge.fromNode.y + edge.toNode.y) / 2;
+
+                return (
+                  <g key={`${edge.from}-${edge.to}`}>
+                    <line
+                      x1={edge.fromNode.x}
+                      y1={edge.fromNode.y}
+                      x2={edge.toNode.x}
+                      y2={edge.toNode.y}
+                      strokeWidth="2"
+                      markerEnd="url(#arrow)"
+                      className="stroke-slate-300"
+                    />
+                    <text x={midX} y={midY - 8} textAnchor="middle" className="fill-slate-500 text-[11px] font-semibold uppercase">
+                      {edge.label}
+                    </text>
+                  </g>
+                );
+              })}
+              {graphNodes.map((node) => (
+                <g key={node.type}>
+                  <circle cx={node.x} cy={node.y} r="48" className={`${node.tone} drop-shadow-sm`} />
+                  <text x={node.x} y={node.y - 4} textAnchor="middle" className={`${node.text} text-[13px] font-bold`}>
+                    {node.type}
+                  </text>
+                  <text x={node.x} y={node.y + 16} textAnchor="middle" className={`${node.text} text-[18px] font-bold`}>
+                    {countByType.get(node.type) ?? 0}
+                  </text>
+                </g>
+              ))}
+            </svg>
           </div>
           <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Metric label="Total Nodes" value={String(totalNodes)} />
+              <Metric label="Total Edges" value={String(totalEdges)} />
+            </div>
             {rows.map((row) => (
               <Metric key={row.type} label={row.type} value={String(row.count)} />
             ))}
+            {edgeRows.length ? (
+              <details className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
+                <summary className="cursor-pointer font-semibold text-slate-900">Relationship counts</summary>
+                <div className="mt-3 space-y-2">
+                  {edgeRows.map((row) => (
+                    <div key={row.type} className="flex items-center justify-between gap-3 text-slate-600">
+                      <span className="font-mono text-xs">{row.type}</span>
+                      <span className="font-semibold text-slate-950">{row.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </div>
         </div>
       </section>
